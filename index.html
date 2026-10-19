@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CineMatch AI</title><link rel="manifest" href="manifest.json"><meta name="theme-color" content="#1a1030">
+<link rel="icon" href="icon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;800&family=Noto+Sans+Thai:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#1a1030;--card:#2a1c4a;--ink:#f6f0ff;--mute:#b3a6d1;--tick:#ffcf4a;--ok:#5fe3a1}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 "Noto Sans Thai",system-ui,sans-serif;padding:env(safe-area-inset-top) 16px 40px}
+main{max-width:640px;margin:0 auto}h1{font:800 2.2rem "Bricolage Grotesque",sans-serif;margin:24px 0 4px}h1 span{color:var(--tick)}
+.sub{color:var(--mute);margin:0 0 16px}
+textarea{width:100%;background:var(--card);color:var(--ink);border:2px solid #4a3a78;border-radius:14px;padding:12px;font:inherit;resize:none}
+textarea:focus,button:focus-visible,a:focus-visible{outline:3px solid var(--tick);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.chip{background:transparent;color:var(--ink);border:1.5px solid #4a3a78;border-radius:99px;padding:6px 12px;font:inherit;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--tick);color:#1a1030;border-color:var(--tick)}
+.go{background:var(--tick);color:#1a1030;border:0;border-radius:12px;padding:12px 20px;font:800 1rem "Bricolage Grotesque","Noto Sans Thai",sans-serif;cursor:pointer;width:100%}
+.mv{background:var(--card);border-radius:16px;margin:14px 0;display:flex;gap:12px;padding:12px;position:relative}
+.mv img{width:92px;height:138px;object-fit:cover;border-radius:10px;background:#3a2a62;flex:none}
+.mv h3{margin:0;font:800 1.1rem "Bricolage Grotesque","Noto Sans Thai",sans-serif}.meta{color:var(--mute);font-size:.85rem}
+.mv p{margin:6px 0;font-size:.9rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.where{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.where a,.where button{background:var(--ok);color:#12301f;border-radius:8px;padding:5px 10px;font:600 .85rem inherit;text-decoration:none;border:0;cursor:pointer}
+.where .none{color:var(--mute);font-size:.85rem}.save{background:#4a3a78!important;color:var(--ink)!important}
+#status{color:var(--mute);margin:12px 0}h2{font:800 1.2rem "Bricolage Grotesque","Noto Sans Thai",sans-serif;margin-top:28px}
+</style></head><body><main>
+<h1>Cine<span>Match</span> AI</h1>
+<p class="sub">บอกอารมณ์ตอนนี้ เดี๋ยวเลือกเรื่องให้ แล้วบอกเลยว่าดูได้ที่ไหน</p>
+<textarea id="q" rows="2" placeholder="เช่น อยากดูหนังฟีลกู๊ดที่พล็อตหักมุม / หนังแอ็กชันไม่เกิน 90 นาที"></textarea>
+<div class="row" id="moods"></div>
+<div class="row"><button class="chip" id="type" aria-pressed="false">ซีรีส์</button><button class="chip" id="reg" aria-pressed="false">ประเทศ: TH</button></div>
+<button class="go" id="go">แนะนำให้หน่อย</button>
+<div id="status" role="status"></div><div id="list"></div>
+<h2 id="wlh" hidden>รายการที่บันทึกไว้</h2><div id="wl"></div>
+</main>
+<script type="module">
+// ===== 1) ใส่ค่าของคุณตรงนี้ =====
+const TMDB_KEY = "YOUR_TMDB_API_KEY";            // https://www.themoviedb.org/settings/api (ฟรี)
+const FIREBASE = null;                            // วาง firebaseConfig ของคุณแทน null เพื่อเปิดรายการบันทึกแบบเรียลไทม์
+const AI_ENDPOINT = "";                           // (ไม่บังคับ) URL ของ Cloud Function ที่เรียก Claude แปลงประโยคเป็นฟิลเตอร์
+// ==================================
+const $=s=>document.querySelector(s),T="https://api.themoviedb.org/3";
+let isTV=false,region="TH",page=1,last=null,uid=null,saved=new Map(),db=null,fs=null;
+const MOODS=[["ฟีลกู๊ด","feel good ฟีลกู๊ด"],["หักมุม","หักมุม"],["แอ็กชัน","แอ็กชัน"],["ร้องไห้","เศร้า"],["ขำๆ","ตลก"],["หลอน","ผี"],["ลุ้นระทึก","ลุ้น"],["รัก","โรแมนติก"]];
+$("#moods").innerHTML=MOODS.map(([l,v])=>`<button class="chip" data-v="${v}" aria-pressed="false">${l}</button>`).join("");
+$("#moods").onclick=e=>{const b=e.target.closest(".chip");if(b)b.setAttribute("aria-pressed",b.getAttribute("aria-pressed")!=="true")};
+$("#type").onclick=e=>{isTV=!isTV;e.target.textContent=isTV?"หนัง":"ซีรีส์";e.target.setAttribute("aria-pressed",isTV)};
+$("#reg").onclick=e=>{region=region==="TH"?"US":"TH";e.target.textContent="ประเทศ: "+region};
+const MAP=[[/ฟีลกู๊ด|feel.?good|อบอุ่น/i,[35,10749]],[/หักมุม|twist/i,[9648,53]],[/แอ็?กชั่?น|action/i,[28]],[/เศร้า|ร้องไห้|sad/i,[18,10749]],[/ตลก|ขำ|funny|comedy/i,[35]],[/ผี|หลอน|กลัว|horror/i,[27]],[/โรแมนติก|รัก|romance/i,[10749]],[/ลุ้น|ระทึก|thriller/i,[53]],[/ไซไฟ|sci-?fi/i,[878]],[/แฟนตาซี|fantasy/i,[14]],[/การ์ตูน|อนิเมะ|anime/i,[16]],[/ครอบครัว|family/i,[10751]],[/ผ่อนคลาย|chill/i,[35,16]]];
+function localParse(t){const g=new Set();MAP.forEach(([r,ids])=>r.test(t)&&ids.forEach(i=>g.add(i)));
+ const m=t.match(/(\d+)\s*(นาที|min)/i),h=t.match(/(\d+(?:\.\d+)?)\s*(ชั่วโมง|ชม|hour|hr)/i);
+ return{genres:[...g],maxRuntime:m?+m[1]:h?Math.round(h[1]*60):null}}
+async function parse(t){if(AI_ENDPOINT){try{const r=await fetch(AI_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t})});return await r.json()}catch{}}return localParse(t)}
+const tvg=ids=>[...new Set(ids.map(i=>i===28||i===12?10759:i===878||i===14?10765:i))];
+async function tmdb(path,p={}){const u=new URL(T+path);u.search=new URLSearchParams({api_key:TMDB_KEY,language:"th-TH",...p});const r=await fetch(u);if(!r.ok)throw new Error(r.status);return r.json()}
+async function search(more){
+ if(TMDB_KEY.startsWith("YOUR"))return $("#status").textContent="ยังไม่ได้ใส่ TMDB API key ในไฟล์ index.html";
+ const text=$("#q").value+" "+[...document.querySelectorAll("#moods [aria-pressed=true]")].map(b=>b.dataset.v).join(" ");
+ if(!more){page=1;last=await parse(text)}else page++;
+ const f=last,g=isTV?tvg(f.genres||[]):f.genres||[];
+ $("#status").textContent="กำลังหา…";
+ const base={sort_by:"popularity.desc","vote_average.gte":6.5,"vote_count.gte":200,watch_region:region,page};
+ if(f.maxRuntime)base["with_runtime.lte"]=f.maxRuntime;
+ let d=await tmdb(isTV?"/discover/tv":"/discover/movie",{...base,...(g.length&&{with_genres:g.join(",")})});
+ if(d.results.length<4&&g.length>1)d=await tmdb(isTV?"/discover/tv":"/discover/movie",{...base,with_genres:g.join("|")});
+ const items=d.results.slice(0,6);$("#status").textContent=items.length?"":"ไม่เจอเรื่องที่ตรง ลองเปลี่ยนคำหรือเลือกอารมณ์อื่น";
+ if(!more)$("#list").innerHTML="";
+ items.forEach(render);
+ if(items.length&&!$("#more")){const b=document.createElement("button");b.id="more";b.className="go";b.textContent="ขอเรื่องอื่นอีก";b.onclick=()=>search(true);$("#list").after(b)}
+}
+function card(m){const t=m.title||m.name,y=(m.release_date||m.first_air_date||"").slice(0,4);
+ const el=document.createElement("article");el.className="mv";
+ el.innerHTML=`<img alt="โปสเตอร์ ${t}" src="${m.poster_path?"https://image.tmdb.org/t/p/w185"+m.poster_path:""}"><div><h3>${t}</h3><div class="meta">${y} · ★ ${m.vote_average?.toFixed(1)}</div><p>${m.overview||"ไม่มีเรื่องย่อภาษาไทย"}</p><div class="where"><span class="none">กำลังเช็คที่ดู…</span></div></div>`;
+ return el}
+const SEARCH={8:q=>"https://www.netflix.com/search?q="+q,337:q=>"https://www.disneyplus.com/search?q="+q,9:q=>"https://www.primevideo.com/search?phrase="+q,119:q=>"https://www.primevideo.com/search?phrase="+q};
+async function providers(m,el){const w=el.querySelector(".where");
+ try{const d=(await tmdb(`/${isTV?"tv":"movie"}/${m.id}/watch/providers`)).results[region];w.innerHTML="";
+  const list=[...(d?.flatrate||[])];
+  list.forEach(p=>{const q=encodeURIComponent(m.title||m.name),f=SEARCH[p.provider_id];
+   w.insertAdjacentHTML("beforeend",`<a target="_blank" rel="noopener" href="${f?f(q):d.link}">ดูที่ ${p.provider_name}</a>`)});
+  if(!list.length)w.innerHTML=`<span class="none">${d?.rent||d?.buy?"มีให้เช่า/ซื้อเท่านั้น":"ยังไม่มีสตรีมมิงในประเทศนี้"}</span>`;
+  if(d?.link)w.insertAdjacentHTML("beforeend",`<a class="save" target="_blank" rel="noopener" href="${d.link}">ทุกตัวเลือก</a>`);
+ }catch{w.innerHTML='<span class="none">เช็คไม่ได้ตอนนี้</span>'}
+ if(db){const b=document.createElement("button");b.className="save";b.textContent=saved.has(String(m.id))?"บันทึกแล้ว":"บันทึก";b.onclick=()=>toggle(m);w.append(b)}}
+function render(m){const el=card(m);$("#list").append(el);providers(m,el)}
+async function toggle(m){const id=String(m.id),r=fs.doc(db,"users",uid,"watchlist",id);
+ saved.has(id)?await fs.deleteDoc(r):await fs.setDoc(r,{id:m.id,title:m.title||m.name,poster:m.poster_path||"",tv:isTV,at:Date.now()})}
+$("#go").onclick=()=>search(false).catch(e=>$("#status").textContent="เกิดข้อผิดพลาด: "+e.message);
+if(FIREBASE){ // Firestore + anonymous auth: รายการบันทึกอัปเดตสดทุกเครื่อง
+ const V="https://www.gstatic.com/firebasejs/10.12.2/";
+ const [{initializeApp},au,store]=await Promise.all([import(V+"firebase-app.js"),import(V+"firebase-auth.js"),import(V+"firebase-firestore.js")]);
+ const app=initializeApp(FIREBASE),auth=au.getAuth(app);db=store.getFirestore(app);fs=store;
+ au.onAuthStateChanged(auth,u=>{if(!u)return au.signInAnonymously(auth);uid=u.uid;
+  fs.onSnapshot(fs.query(fs.collection(db,"users",uid,"watchlist"),fs.orderBy("at","desc")),s=>{
+   saved=new Map(s.docs.map(d=>[d.id,d.data()]));$("#wlh").hidden=!saved.size;
+   $("#wl").innerHTML=[...saved.values()].map(x=>`<article class="mv"><img alt="" src="${x.poster?"https://image.tmdb.org/t/p/w185"+x.poster:""}"><div><h3>${x.title}</h3></div></article>`).join("")})})}
+if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js");
+</script></body></html>
