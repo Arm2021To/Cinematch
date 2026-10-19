@@ -36,7 +36,16 @@ textarea:focus,button:focus-visible,a:focus-visible{outline:3px solid var(--tick
 <script type="module">
 // ===== 1) ใส่ค่าของคุณตรงนี้ =====
 const TMDB_KEY = "5b6ad909678829d0609c57edc990f07b";            // https://www.themoviedb.org/settings/api (ฟรี)
-const FIREBASE = null;                            // วาง firebaseConfig ของคุณแทน null เพื่อเปิดรายการบันทึกแบบเรียลไทม์
+const FIREBASE = // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyBKZP4_lCdMxpeY3Re92xoiCkhqX2ZIBaM",
+  authDomain: "cinematch-4be14.firebaseapp.com",
+  projectId: "cinematch-4be14",
+  storageBucket: "cinematch-4be14.firebasestorage.app",
+  messagingSenderId: "637423326504",
+  appId: "1:637423326504:web:f6e8799b644b0ab75eac1d",
+  measurementId: "G-PXRGTMWDY6"
+};;                            // วาง firebaseConfig ของคุณแทน null เพื่อเปิดรายการบันทึกแบบเรียลไทม์
 const AI_ENDPOINT = "";                           // (ไม่บังคับ) URL ของ Cloud Function ที่เรียก Claude แปลงประโยคเป็นฟิลเตอร์
 // ==================================
 const $=s=>document.querySelector(s),T="https://api.themoviedb.org/3";
